@@ -12,16 +12,17 @@ from scipy.constants import value as constants
 from glob import glob
 import re
 from tqdm import tqdm
+from aux import *
 
 folder = sys.argv[1]
-files = glob(pjoin(folder, '*'))
+files = glob(pjoin(folder, 'Ex_*.dat'))
 pat = re.compile('\d+')
 files.sort(key=lambda x: int(pat.findall(x)[-1]))
 
 # READ TEMPORAL GRID
 
-with open(pjoin(folder, '..', 'timestep.txt')) as file:
-    dt = float(file.readline())
+vars = parse_xoopic_input(pjoin(folder, '..', 'input.inp'))
+dt = vars['timeStep']
 
 n = np.array([int(pat.findall(a)[-1]) for a in files])
 n += 1 # XOOPIC diagnostics is actually off by one
@@ -48,25 +49,25 @@ for i, file in enumerate(tqdm(files)):
 
 # Remove y
 f = np.average(f, axis=2)
+x = np.average(x, axis=1)
 
 # Compress axes
 # ind = range(len(t)-128, len(t), 1)
-ind = range(len(t)-128, len(t), 1)
-ind = range(len(t))
-t = t[ind]
-f = f[ind]
-x = x[:,0]
+# ind = range(len(t))
+# t = t[ind]
+# f = f[ind]
+# x = x[:,0]
 
 # FFT axes
 dt = t[1]-t[0]
 dx = x[1]-x[0]
 Mt = len(t)
 Mx = len(x)
-omega = 2*np.pi*np.array(range(Mt))/(Mt*dt)
-k     = 2*np.pi*np.array(range(Mx))/(Mx*dx)
-Omega, K = np.meshgrid(omega, k)
+omega = 2*np.pi*np.arange(Mt)/(Mt*dt)
+k     = 2*np.pi*np.arange(Mx)/(Mx*dx)
+Omega, K = np.meshgrid(omega, k, indexing='ij')
 
-F = np.fft.fft2(f).T
+F = np.fft.fftn(f, norm='ortho')
 
 halflen = np.array(F.shape, dtype=int)//2
 Omega = Omega[:halflen[0],:halflen[1]]
@@ -94,14 +95,9 @@ wa /= wpi
 
 Z = np.log(np.abs(F))
 # Z = np.abs(F)
-# omega = x[:,0]
-# X, T = np.meshgrid(x[:,0], t)
-print(K.shape, Omega.shape, Z.shape)
-# T = T.T
-# X = X.T
-# Z = Z.T
 
 plt.pcolor(K, Omega, Z)
+plt.colorbar()
 
 plt.plot(ka, wa, '--w')
 
