@@ -18,3 +18,22 @@ only need the path to the folder as an argument. The scripts can read from
 multiple files, and save new results into the folder with standardized name.
 One may run consecutive scripts if necessary. The scripts are typically not
 general, but customized to each project.
+
+### disprel_split.py
+``` bash
+usage: disprel_split.py [-h] [--i I] [--periodic PERIODIC] [--yLoc YLOC] [--sN SN] [--plot PLOT]
+
+Plasma Dispersion Processor
+
+optional arguments:
+  -h, --help           show this help message and exit
+  --i I                Path to E-field data (String)
+  --periodic PERIODIC  Period System in Y (True/False)
+  --yLoc YLOC          Choose Y location in bounded system (integer between 0,Ny)
+  --sN SN              No. of chuncks you want to split the processed file (integer between 1,N)
+  --plot PLOT          Plot the figure (True/False)
+```
+#### Example
+``` bash
+./disprel_split.py --i <path_to_data> --periodic True --sN 2 --plot True
+```
