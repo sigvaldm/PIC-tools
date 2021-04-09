@@ -5,22 +5,42 @@
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
+import matplotlib as mp
 import numpy as np
 import sys
+import os.path
 from os.path import join as pjoin
 from scipy.constants import value as constants
 from glob import glob
 import re
 from tqdm import tqdm
 from aux import *
+import argparse
 
-folder = sys.argv[1]
+
+parser = argparse.ArgumentParser(description='Plasma Dispersion Processor')
+parser.add_argument('-i','--input', default=None, type=str, help='Path to E-field data')
+parser.add_argument('-per','--periodic', action='store_true', help='Add this if the system is periodic in Y')
+parser.add_argument('-yLoc','--yLocation', default=1, type=int, help='In bounded (in Y) system Choose Y location, Options: e.g. 1 (Any number between 0-Ny)')
+parser.add_argument('-pl','--plot', action='store_true', help='Add this if you want to plot the figure')
+parser.add_argument('-n','--norm', default='omega_pe', type=str, help='Normalizing frequency, Options: omega_pi, omega_pe')
+
+args        = parser.parse_args()
+folder      = args.input
+periodic    = args.periodic
+yLoc        = args.yLocation	#8 # Choose y location
+plot        = args.plot
+norm        = args.norm
+
+# Set processed data directory
+folder_base= os.path.basename(os.path.dirname(folder))
+savedir     = pjoin(folder, '..',folder_base+'_processed')
+
 files = glob(pjoin(folder, 'Ex_*.dat'))
 pat = re.compile('\d+')
 files.sort(key=lambda x: int(pat.findall(x)[-1]))
 
 # READ TEMPORAL GRID
-
 vars = parse_xoopic_input(pjoin(folder, '..', 'input.inp'))
 dt = vars['timeStep']
 
@@ -29,86 +49,151 @@ n += 1 # XOOPIC diagnostics is actually off by one
 t = n*dt
 Nt = len(t)
 
-# READ SPATIAL GRID
+if  os.path.exists(savedir) and os.path.exists(pjoin(savedir,'pro_data_file.npz')):
+	print('processed data exists. Loading data ...')
+	f = np.load(pjoin(savedir,'pro_data_file.npz'))['data']
+	f = np.array(f.T)
+	print('Shape of loaded data fp: ',f.shape)
+	x = np.load(pjoin(savedir,"x.npz"))['x']
+	print("Shape of loaded data x",x.shape)
 
-data = np.loadtxt(files[0])
+else:
+  if  os.path.exists(savedir)== False:
+    os.mkdir(savedir)
+  print('processed data does not exist. Wait, processing data ...')
 
-x, y = data[:,2:4].T
-Ny = len(np.where(x==x[0])[0])
-Nx = len(x)//Ny
-x = x.reshape(Nx, Ny)
-y = y.reshape(Nx, Ny)
+  # READ SPATIAL GRID
+  data = np.loadtxt(files[0])
 
-# READ FIELD
+  x, y = data[:,2:4].T
+  Ny = len(np.where(x==x[0])[0])
+  Nx = len(x)//Ny
+  x = x.reshape(Nx, Ny)
+  y = y.reshape(Nx, Ny)
 
-f = np.zeros((Nt, Nx, Ny))
+  # READ FIELD
+  f = np.zeros((Nt, Nx, Ny))
 
-for i, file in enumerate(tqdm(files)):
+  for i, file in enumerate(tqdm(files)):
     data = np.loadtxt(file)
     f[i] = data[:,-1].reshape(Nx, Ny)
 
-# Remove y
-f = np.average(f, axis=2)
-x = np.average(x, axis=1)
+    # Remove y
+  if periodic == False:
+      f = f[:,:,yLoc-4:yLoc+4]
+  f = np.average(f, axis=2)
+  x = np.average(x, axis=1)
+  np.savez_compressed(pjoin(savedir,'pro_data_file.npz'),data=f)
+  np.savez_compressed(pjoin(savedir,"x.npz"),x=x)
 
-# Compress axes
-# ind = range(len(t)-128, len(t), 1)
-# ind = range(len(t))
-# t = t[ind]
-# f = f[ind]
-# x = x[:,0]
+if plot:
+    # FFT axes
+  dt = vars['timeStep']*vars['save_step'] #t[1]-t[0]
+  dx = vars['dX'] #x[1]-x[0]
+  Mt = len(t)
+  Mx = vars['nX'] #len(x)
+  omega = 2*np.pi*np.arange(Mt)/(Mt*dt)
+  k     = 2*np.pi*np.arange(Mx)/(Mx*dx)
+  print('Length of k: ',len(k))
+  print('Max of k: ',np.max(k))
+  Omega, K = np.meshgrid(omega, k, indexing='ij')
+  print('Shape of Omega: ',Omega.shape)
+  F = np.fft.fftn(f, norm='ortho')
 
-# FFT axes
-dt = t[1]-t[0]
-dx = x[1]-x[0]
-Mt = len(t)
-Mx = len(x)
-omega = 2*np.pi*np.arange(Mt)/(Mt*dt)
-k     = 2*np.pi*np.arange(Mx)/(Mx*dx)
-Omega, K = np.meshgrid(omega, k, indexing='ij')
+  halflen = np.array(F.shape, dtype=int)//2
+  Omega = Omega[:halflen[0],:halflen[1]]
+  K = K[:halflen[0],:halflen[1]]
+  F = F[:halflen[0],:halflen[1]]
 
-F = np.fft.fftn(f, norm='ortho')
+  # Analytical ion-acoustic dispresion relation
+  ni = vars['nI']
+  ne = ni
 
-halflen = np.array(F.shape, dtype=int)//2
-Omega = Omega[:halflen[0],:halflen[1]]
-K = K[:halflen[0],:halflen[1]]
-F = F[:halflen[0],:halflen[1]]
+  eps0 = constants('electric constant')
+  kb = constants('Boltzmann constant')
+  me = constants('electron mass')
+  e = constants('elementary charge')
+
+  mi  = vars['mI'] #40*constants('atomic mass constant')
+  nK  = vars['nX']
+  gamma_e = 5./3
+  Te  = vars['tEK'] #1.6*11604
+  Ti  = vars['tIK'] #0.1*11604
+  vb  = vars['vdI']
+
+  wpi = np.sqrt(e**2*ni/(eps0*mi))
+  wpe = np.sqrt(e**2*ne/(eps0*me))
+  dl	= np.sqrt(eps0*kb*Te/(ni*e*e))
+  dli	= np.sqrt(eps0*kb*Ti/(ni*e*e))
+  print("wpi={}".format(wpi))
+  print("dl={}".format(dl))
+  cia = np.sqrt(gamma_e*kb*Te/mi)
+  ka = np.linspace(0, np.max(K), nK)
+  wac = np.sqrt((ka*cia)**2/(1+(ka*cia/wpi)**2))
+  wah = np.sqrt( (wpi**2) * (ka*ka * dli*dli * (Te/Ti))/(1+(ka*ka * dli*dli * (Te/Ti))) )
+  wl = np.sqrt( (wpe**2) * (1+me/mi) * (1+(3*ka*ka*dl*dl)/(1+me/mi)) )
+  # wea =
+  wb = ka*vb
 
 
-# Analytical ion-acoustic dispresion relation
-ni = 1e13
-eps0 = constants('electric constant')
-kb = constants('Boltzmann constant')
-mi = 40*constants('atomic mass constant')
-e = constants('elementary charge')
-gamma_e = 5./3
-Te = 11604
-wpi = np.sqrt(e**2*ni/(eps0*mi))
-print("wpi={}".format(wpi))
-cia = np.sqrt(gamma_e*kb*Te/mi)
-ka = np.linspace(0, np.max(K), 100)
-wa = np.sqrt((ka*cia)**2/(1+(ka*cia/wpi)**2))
+  #omega_pe
 
-omega /= wpi
-Omega /= wpi
-wa /= wpi
+  if norm == "omega_pi":
+    omega /= wpi
+    Omega /= wpi
+  else:
+    omega /=wpe
+    Omega /=wpe
 
-Z = np.log(np.abs(F))
-# Z = np.abs(F)
+  wl /= wpe
+  wac /= wpi
+  wah /= wpi
+  wb /= wpi
 
-plt.pcolor(K, Omega, Z)
-plt.colorbar()
+  Z = np.log(np.abs(F))
+  #Z = np.abs(F)
 
-plt.plot(ka, wa, '--w')
+  # ==== Figure =============
 
-plt.xlabel('k [1/m]')
-plt.ylabel('$\omega/\omega_{pi}$')
-plt.savefig(pjoin(folder, 'disprel.png'))
-plt.show()
+  ##### FIG SIZE CALC ############
+  figsize = np.array([150,150/1.618]) #Figure size in mm
+  dpi = 300                         #Print resolution
+  ppi = np.sqrt(1920**2+1200**2)/24 #Screen resolution
 
-# fig = plt.figure()
-# ax = plt.gca(projection='3d')
-# plt.imshow(np.log(np.abs(F[-1024:,:])))
-# surf = ax.plot_surface(T, X, Z, cmap=cm.coolwarm, linewidth=0, antialiased=False)
-# fig.colorbar(surf, shrink=0.5, aspect=5)
-# plt.show()
+  fig,ax = plt.subplots(figsize=figsize/25.4,constrained_layout=True,dpi=ppi)
+  mp.rc('text', usetex=False)
+  mp.rc('font', family='sans-serif', size=12, serif='Computer Modern Roman')
+  mp.rc('axes', titlesize=12)
+  mp.rc('axes', labelsize=12)
+  mp.rc('xtick', labelsize=12)
+  mp.rc('ytick', labelsize=12)
+  mp.rc('legend', fontsize=12)
+
+  oRange = len(K[:,0]) #for full omega len(K[:,0])
+  if norm == "omega_pi":
+    oRange = int(oRange/10)
+    plt.pcolor(K[:oRange,:], Omega[:oRange,:], Z[:oRange,:],shading='auto',vmin=np.min(Z[:oRange,:]),vmax=np.max(Z[:oRange,:])) #np.min(Z[:oRange,:])
+    plt.colorbar()
+  else:
+    plt.pcolor(K[:oRange,:], Omega[:oRange,:], Z[:oRange,:],shading='auto',vmin=np.min(Z[:oRange,:]),vmax=np.max(Z[:oRange,:]))
+    #plt.pcolor(K, Omega, Z,shading='auto',vmin=np.min(Z),vmax=np.max(Z))
+    #plt.imshow(K, Omega, Z)
+    plt.colorbar()
+  
+  if norm == "omega_pi":
+    plt.plot(ka, wac, '--w', label="IAW with cold ions")
+    # plt.plot(ka, wah, '--r',label="IAW with warm ions")
+    # plt.plot(ka, wb, '--w',label="Beam driven waves")
+    leg = ax.legend()
+    ax.set_xlabel('$k~[1/m]$')
+    ax.set_ylabel('$\omega/\omega_{pi}$')
+  else:
+    plt.plot(ka, wl, '--w', label="langmuir wave")
+    # plt.axhline(y=1.0, color='w', linestyle='--',label='$\omega_{pe}$')
+    # leg = ax.legend()
+    ax.set_xlabel('$k~[1/m]$')
+    ax.set_ylabel('$\omega/\omega_{pi}$')
+
+  #ax.set_ylim([0, 2])
+  plt.savefig(pjoin(savedir, norm+'_disprel.png'))
+  # plt.show()

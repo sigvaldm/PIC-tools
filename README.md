@@ -18,3 +18,24 @@ only need the path to the folder as an argument. The scripts can read from
 multiple files, and save new results into the folder with standardized name.
 One may run consecutive scripts if necessary. The scripts are typically not
 general, but customized to each project.
+
+### disprel_split.py
+``` bash
+usage: disprel.py [-h] [-i INPUT] [-per] [-yLoc YLOCATION] [-pl] [-n NORM]
+
+Plasma Dispersion Processor
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -i INPUT, --input INPUT
+                        Path to E-field data
+  -per, --periodic      Add this if the system is periodic in Y
+  -yLoc YLOCATION, --yLocation YLOCATION
+                        In bounded (in Y) system Choose Y location, Options: e.g. 1 (Any number between 0-Ny)
+  -pl, --plot           Add this if you want to plot the figure
+  -n NORM, --norm NORM  Normalizing frequency, Options: omega_pi, omega_pe)
+```
+#### Example
+``` bash
+./disprel.py -i <path_to_data> -per -pl -n omega_pe
+```
