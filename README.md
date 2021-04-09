@@ -21,19 +21,21 @@ general, but customized to each project.
 
 ### disprel_split.py
 ``` bash
-usage: disprel_split.py [-h] [--i I] [--periodic PERIODIC] [--yLoc YLOC] [--sN SN] [--plot PLOT]
+usage: disprel.py [-h] [-i INPUT] [-per] [-yLoc YLOCATION] [-pl] [-n NORM]
 
 Plasma Dispersion Processor
 
 optional arguments:
-  -h, --help           show this help message and exit
-  --i I                Path to E-field data (String)
-  --periodic PERIODIC  Period System in Y (True/False)
-  --yLoc YLOC          Choose Y location in bounded system (integer between 0,Ny)
-  --sN SN              No. of chuncks you want to split the processed file (integer between 1,N)
-  --plot PLOT          Plot the figure (True/False)
+  -h, --help            show this help message and exit
+  -i INPUT, --input INPUT
+                        Path to E-field data
+  -per, --periodic      Add this if the system is periodic in Y
+  -yLoc YLOCATION, --yLocation YLOCATION
+                        In bounded (in Y) system Choose Y location, Options: e.g. 1 (Any number between 0-Ny)
+  -pl, --plot           Add this if you want to plot the figure
+  -n NORM, --norm NORM  Normalizing frequency, Options: omega_pi, omega_pe)
 ```
 #### Example
 ``` bash
-./disprel_split.py --i <path_to_data> --periodic True --sN 2 --plot True
+./disprel.py -i <path_to_data> -per -pl -n omega_pe
 ```
