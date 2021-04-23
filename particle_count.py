@@ -57,9 +57,15 @@ for i, file in enumerate(tqdm(files)):
         data = np.array([line.split()[0] for line in f], int)
         count[:,i] = np.bincount(data)
 
-plt.plot(t, count[0])
-plt.plot(t, count[1], '--')
-plt.xlabel('Time [s]')
-plt.ylabel('Particle count')
+t_mid = 0.5*(t[1:]+t[:-1])
+
+fig, (ax1, ax2) = plt.subplots(2, 1)
+ax1.plot(t, count[0])
+ax1.plot(t, count[1], '--')
+ax1.set_ylabel('Particle count')
+ax2.plot(t_mid, count[0,1:]-count[0,:-1])
+ax2.plot(t_mid, count[1,1:]-count[1,:-1], '--')
+ax2.set_ylabel('Particle count change per time-step')
+ax2.set_xlabel('Time [s]')
 
 plt.show()
