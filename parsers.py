@@ -1,48 +1,16 @@
 import re
 from parsy import regex, string, seq
-
-def parse_xoopic_input(filename):
-    '''
-    Parses and evaluates the contents of XOOPIC input file.
-
-    Returns:
-        Dictionary corresponding to "Region" block in input file.
-
-    Example:
-        Get the time-step and the charge of species 0 and 1:
-
-            config = parse_xoopic_input(filename)
-            dt = config['Control'][0]['dt']
-            q0 = config['Species'][0]['q']
-            q1 = config['Species'][1]['q']
-
-            from pprint import PrettyPrinter
-            PrettyPrinter().pprint(config)
-    '''
-    contents = XoopicParser()(filename)
-    evaluated_contents = eval_xoopic_region(contents)
-    return evaluated_contents
-
-def dict_of_list(list_of_pairs):
-    '''
-    Creates a dictionary from a list of (key,value)-pairs.
-    However, to allow multiple identical keys, each entry
-    will be a list of values belonging to that key.
-    '''
-    dict_of_list = {}
-    for key, value in list_of_pairs:
-        if key not in dict_of_list:
-            dict_of_list[key] = []
-        dict_of_list[key].append(value)
-    return dict_of_list
+from copy import deepcopy
+import numpy as np
+from functools import reduce
 
 class XoopicParser(object):
-    '''
-    A parser for XOOPIC input files. Example of use:
+    """
+    A bare bones parser for XOOPIC input files. Example of use:
 
         file_contents = XoopicParser()(filename)
         PrettyPrinter.pprint(file_contents)
-    '''
+    """
 
     def __init__(self):
 
@@ -89,10 +57,21 @@ class XoopicParser(object):
 
         return self.parser.parse(code)
 
-def eval_xoopic_region(xoopic_input):
+def eval_xoopic(xoopic_input):
     """
     Takes in a parsed xoopic input file, and evaluates all expression in the
-    "Region" block.
+    "Variables" and "Region" blocks.
+
+    Example:
+        Get the time-step and the charge of species 0 and 1:
+
+        region, variables = parse_xoopic_input(filename)
+        dt = region['Control'][0]['dt']
+        q0 = region['Species'][0]['q']
+        q1 = region['Species'][1]['q']
+
+        from pprint import PrettyPrinter
+        PrettyPrinter().pprint(region)
     """
 
     # Import sqrt and other mathematical function into Variables block
@@ -104,8 +83,8 @@ def eval_xoopic_region(xoopic_input):
     exec(code, None, variables)
 
     # Evaluate each value in the region block using the variables
-    region_block = xoopic_input['Region']
-    for subblock in region_block.values():
+    region = xoopic_input['Region']
+    for subblock in region.values():
         for parameters in subblock:
             for key in parameters:
                 try:
@@ -113,4 +92,97 @@ def eval_xoopic_region(xoopic_input):
                 except:
                     pass
 
-    return region_block
+    return region, variables
+
+def parse_xoopic_input(filename):
+    """
+    Convenience function for parsing XOOPIC files, using eval_xoopic and
+    XoopicParser. Returns a dictionary.
+    """
+    contents = XoopicParser()(filename)
+    region, variables = eval_xoopic(contents)
+
+    d = {'Region': region, 'Variables': variables}
+
+    grid = region['Grid'][0]
+    dx = (grid['x1f']-grid['x1s'])/grid['J']
+    dy = (grid['x2f']-grid['x2s'])/grid['K']
+    d['dx'] = np.array([dx, dy])
+
+    d['dt'] = region['Control'][0]['dt']
+    d['plasma'] = infer_plasma_parameters(region, variables)
+
+    return d
+
+def dict_of_list(list_of_pairs):
+    """
+    Creates a dictionary from a list of (key,value)-pairs.
+    However, to allow multiple identical keys, each entry
+    will be a list of values belonging to that key.
+    """
+    dict_of_list = {}
+    for key, value in list_of_pairs:
+        if key not in dict_of_list:
+            dict_of_list[key] = []
+        dict_of_list[key].append(value)
+    return dict_of_list
+
+
+def infer_plasma_parameters(config, variables, langmuir_format=True):
+    species = {}
+    for s in config['Species']:
+        name = s['name']
+        species[name] = {'q': s['q'], 'm': s['m']}
+
+    plasma = {}
+    for blockname in ['Load', 'EmitPort']:
+        if blockname in config:
+            for s in config[blockname]:
+
+                name = s['speciesName']
+                if name not in plasma:
+                    plasma[name] = []
+
+                q = species[name]['q']
+                m = species[name]['m']
+                vth = s['temperature']
+                u = np.array([s['v1drift'], s['v2drift'], s['v3drift']])
+
+                try:
+                    n = s['density']
+                except:
+                    try:
+                        varname = 'nI' if q>0 else 'nE'
+                        n = variables[varname]
+                        print('Density not available in {} block. '
+                              'Guessing "{}" is the density for "{}".'
+                              .format(blockname, varname, name))
+                    except:
+                        try:
+                            varname = 'Ni' if q>0 else 'Ne'
+                            n = variables[varname]
+                            print('Density not available in {} block. '
+                                  'Guessing "{}" is the density for "{}".'
+                                  .format(blockname, varname, name))
+                        except:
+                            n = None
+
+                d = {'q': q, 'm': m, 'n': n, 'vth': vth, 'u': u}
+                plasma[name].append(d)
+
+    if langmuir_format:
+        plasma = convert_plasma_to_langmuir(plasma)
+
+    return plasma
+
+def convert_plasma_to_langmuir(plasma):
+    from langmuir import Species
+    plasma = deepcopy(plasma)
+    for p in plasma:
+        for i, q in enumerate(plasma[p]):
+            u=q.pop('u')
+            plasma[p][i] = Species(**q)
+            plasma[p][i].u = u
+    # plasma = reduce(lambda x, acc: x+acc, plasma.values())
+    # plasma.sort(key=lambda x: x.q)
+    return plasma

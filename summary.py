@@ -8,11 +8,13 @@ import argparse
 from parsers import *
 from langmuir import *
 from pprint import PrettyPrinter
+from functools import reduce
 
 parser = argparse.ArgumentParser()
 parser.add_argument('folder', type=str,
                     help='Folder to simulation runs')
 args = parser.parse_args()
 
-config=parse_xoopic_input(pjoin(args.folder, 'input.inp'))
+config = parse_xoopic_input(pjoin(args.folder, 'input.inp'))
 PrettyPrinter().pprint(config)
+
