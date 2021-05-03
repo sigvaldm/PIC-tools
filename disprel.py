@@ -14,7 +14,7 @@ from scipy.constants import value as constants
 from glob import glob
 import re
 from tqdm import tqdm
-from aux import *
+from parsers import *
 import argparse
 
 
@@ -42,7 +42,8 @@ files.sort(key=lambda x: int(pat.findall(x)[-1]))
 
 # READ TEMPORAL GRID
 vars = parse_xoopic_input(pjoin(folder, '..', 'input.inp'))
-dt = vars['timeStep']
+# print(vars['Control'][0]['dt'])
+dt = vars['Control'][0]['dt']
 
 n = np.array([int(pat.findall(a)[-1]) for a in files])
 n += 1 # XOOPIC diagnostics is actually off by one
@@ -52,7 +53,6 @@ Nt = len(t)
 if  os.path.exists(savedir) and os.path.exists(pjoin(savedir,'pro_data_file.npz')):
 	print('processed data exists. Loading data ...')
 	f = np.load(pjoin(savedir,'pro_data_file.npz'))['data']
-	f = np.array(f.T)
 	print('Shape of loaded data fp: ',f.shape)
 	x = np.load(pjoin(savedir,"x.npz"))['x']
 	print("Shape of loaded data x",x.shape)
@@ -88,10 +88,16 @@ else:
 
 if plot:
     # FFT axes
-  dt = vars['timeStep']*vars['save_step'] #t[1]-t[0]
-  dx = vars['dX'] #x[1]-x[0]
+  # dt = vars['timeStep']*vars['save_step'] #t[1]-t[0]
+
   Mt = len(t)
-  Mx = vars['nX'] #len(x)
+  Mx = vars['Grid'][0]['J'] #len(x)
+  Lx = vars['Grid'][0]['x1f'] - vars['Grid'][0]['x1s']
+  dx = Lx/Mx #x[1]-x[0]
+  # dt = t[1]-t[0]
+  # dx = x[1]-x[0]
+  # Mt = len(t)
+  # Mx = len(x)
   omega = 2*np.pi*np.arange(Mt)/(Mt*dt)
   k     = 2*np.pi*np.arange(Mx)/(Mx*dx)
   print('Length of k: ',len(k))
@@ -106,20 +112,30 @@ if plot:
   F = F[:halflen[0],:halflen[1]]
 
   # Analytical ion-acoustic dispresion relation
-  ni = vars['nI']
-  ne = ni
+  ne = vars['Load'][0]['density']
+  ni = ne
 
   eps0 = constants('electric constant')
   kb = constants('Boltzmann constant')
   me = constants('electron mass')
   e = constants('elementary charge')
 
-  mi  = vars['mI'] #40*constants('atomic mass constant')
-  nK  = vars['nX']
+  mi  = vars['Species'][1]['m'] #40*constants('atomic mass constant')
+  nK  = vars['Grid'][0]['J']
   gamma_e = 5./3
-  Te  = vars['tEK'] #1.6*11604
-  Ti  = vars['tIK'] #0.1*11604
-  vb  = vars['vdI']
+
+  units = vars['Load'][0]['units']
+  if units == 'MKS':
+      vthE = vars['Load'][0]['temperature']
+      tEeV   = 0.5*me*(vthE*vthE)/e
+      tEK    = tEeV*11604.525
+      vthI = vars['Load'][1]['temperature']
+      tIeV   = 0.5*mi*(vthI*vthI)/e
+      tIK    = tIeV*11604.525
+
+  Te  = tEK #vars['tEK'] #1.6*11604
+  Ti  = tIK #vars['tIK'] #0.1*11604
+  vb  = vars['Load'][1]['v1drift']
 
   wpi = np.sqrt(e**2*ni/(eps0*mi))
   wpe = np.sqrt(e**2*ne/(eps0*me))
@@ -170,30 +186,34 @@ if plot:
   mp.rc('legend', fontsize=12)
 
   oRange = len(K[:,0]) #for full omega len(K[:,0])
+  # oRange = int(oRange/50)
+  print(K[:oRange,:].shape,Omega[:oRange,:].shape,Z[:oRange,:].shape)
+  # print(oRange)
   if norm == "omega_pi":
-    oRange = int(oRange/10)
+    oRange = int(oRange/200)
     plt.pcolor(K[:oRange,:], Omega[:oRange,:], Z[:oRange,:],shading='auto',vmin=np.min(Z[:oRange,:]),vmax=np.max(Z[:oRange,:])) #np.min(Z[:oRange,:])
     plt.colorbar()
   else:
+    oRange = int(oRange/50)
     plt.pcolor(K[:oRange,:], Omega[:oRange,:], Z[:oRange,:],shading='auto',vmin=np.min(Z[:oRange,:]),vmax=np.max(Z[:oRange,:]))
     #plt.pcolor(K, Omega, Z,shading='auto',vmin=np.min(Z),vmax=np.max(Z))
     #plt.imshow(K, Omega, Z)
     plt.colorbar()
-  
+
   if norm == "omega_pi":
-    plt.plot(ka, wac, '--w', label="IAW with cold ions")
+    plt.plot(ka, wb, '--w', label="Beam Mode")
     # plt.plot(ka, wah, '--r',label="IAW with warm ions")
     # plt.plot(ka, wb, '--w',label="Beam driven waves")
     leg = ax.legend()
     ax.set_xlabel('$k~[1/m]$')
     ax.set_ylabel('$\omega/\omega_{pi}$')
   else:
-    plt.plot(ka, wl, '--w', label="langmuir wave")
+    plt.plot(ka, wb, '--w', label="langmuir wave")
     # plt.axhline(y=1.0, color='w', linestyle='--',label='$\omega_{pe}$')
-    # leg = ax.legend()
+    leg = ax.legend()
     ax.set_xlabel('$k~[1/m]$')
-    ax.set_ylabel('$\omega/\omega_{pi}$')
+    ax.set_ylabel('$\omega/\omega_{pe}$')
 
-  #ax.set_ylim([0, 2])
+  ax.set_ylim([0, 2])
   plt.savefig(pjoin(savedir, norm+'_disprel.png'))
   # plt.show()
