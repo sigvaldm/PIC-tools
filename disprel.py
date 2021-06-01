@@ -25,6 +25,7 @@ parser.add_argument('-yLoc','--yLocation', default=1, type=int, help='In bounded
 parser.add_argument('-pl','--plot', action='store_true', help='Add this if you want to plot the figure')
 parser.add_argument('-n','--norm', default='omega_pe', type=str, help='Normalizing frequency, Options: omega_pi, omega_pe')
 
+
 args        = parser.parse_args()
 folder      = args.input
 periodic    = args.periodic
@@ -51,11 +52,12 @@ t = n*dt
 Nt = len(t)
 
 if  os.path.exists(savedir) and os.path.exists(pjoin(savedir,'pro_data_file.npz')):
-	print('processed data exists. Loading data ...')
-	f = np.load(pjoin(savedir,'pro_data_file.npz'))['data']
-	print('Shape of loaded data fp: ',f.shape)
-	x = np.load(pjoin(savedir,"x.npz"))['x']
-	print("Shape of loaded data x",x.shape)
+        print('processed data exists. Loading data ...')
+        f = np.load(pjoin(savedir,'pro_data_file.npz'))['data']
+        print('Shape of loaded data fp: ',f.shape)
+        Nt = len(f[:,0])
+        x = np.load(pjoin(savedir,"x.npz"))['x']
+        print("Shape of loaded data x",x.shape)
 
 else:
   if  os.path.exists(savedir)== False:
@@ -90,7 +92,7 @@ if plot:
     # FFT axes
   # dt = vars['timeStep']*vars['save_step'] #t[1]-t[0]
 
-  Mt = len(t)
+  Mt = Nt
   Mx = vars['Grid'][0]['J'] #len(x)
   Lx = vars['Grid'][0]['x1f'] - vars['Grid'][0]['x1s']
   dx = Lx/Mx #x[1]-x[0]
@@ -112,7 +114,7 @@ if plot:
   F = F[:halflen[0],:halflen[1]]
 
   # Analytical ion-acoustic dispresion relation
-  ne = vars['Load'][0]['density']
+  ne = 1E13 #vars['Load'][0]['density']
   ni = ne
 
   eps0 = constants('electric constant')
@@ -124,18 +126,53 @@ if plot:
   nK  = vars['Grid'][0]['J']
   gamma_e = 5./3
 
-  units = vars['Load'][0]['units']
-  if units == 'MKS':
-      vthE = vars['Load'][0]['temperature']
-      tEeV   = 0.5*me*(vthE*vthE)/e
-      tEK    = tEeV*11604.525
-      vthI = vars['Load'][1]['temperature']
-      tIeV   = 0.5*mi*(vthI*vthI)/e
-      tIK    = tIeV*11604.525
+  if 'BeamEmitter' in vars:
+      units_0 = vars['BeamEmitter'][0]['units']
+      if units_0 == 'MKS':
+          vthE = vars['BeamEmitter'][0]['temperature']
+          tEeV   = 0.5*me*(vthE*vthE)/e
+          tEK    = tEeV*11604.525
+
+      units_1 = vars['BeamEmitter'][1]['units']
+      if units_1 == 'MKS':
+          vthI = vars['BeamEmitter'][1]['temperature']
+          tIeV   = 0.5*mi*(vthI*vthI)/e
+          tIK    = tIeV*11604.525
+          vb  = vars['BeamEmitter'][1]['v1drift']
+          tIbeV   = 0.5*mi*(vb*vb)/e
+          tIbK    = tIbeV*11604.525
+  if 'Load' in vars:
+      units_0 = vars['Load'][0]['units']
+      if units_0 == 'MKS':
+          vthE = vars['Load'][0]['temperature']
+          tEeV   = 0.5*me*(vthE*vthE)/e
+          tEK    = tEeV*11604.525
+
+      units_1 = vars['Load'][1]['units']
+      if units_1 == 'MKS':
+          vthI = vars['Load'][1]['temperature']
+          tIeV   = 0.5*mi*(vthI*vthI)/e
+          tIK    = tIeV*11604.525
+          vb  = vars['Load'][1]['v1drift']
+          tIbeV   = 0.5*mi*(vb*vb)/e
+          tIbK    = tIbeV*11604.525
+
+
+# For Plasma Source
+  # vthE = 419368.69338080706
+  # tEeV   = 0.5*me*(vthE*vthE)/e
+  # tEK    = tEeV*11604.525
+  #
+  # vthI = 1384.122937841148
+  # tIeV   = 0.5*mi*(vthI*vthI)/e
+  # tIK    = tIeV*11604.525
+  # vb  = 4376.981045261688
+  # tIbeV   = 0.5*mi*(vb*vb)/e
+  # tIbK    = tIbeV*11604.525
 
   Te  = tEK #vars['tEK'] #1.6*11604
   Ti  = tIK #vars['tIK'] #0.1*11604
-  vb  = vars['Load'][1]['v1drift']
+
 
   wpi = np.sqrt(e**2*ni/(eps0*mi))
   wpe = np.sqrt(e**2*ne/(eps0*me))
@@ -151,7 +188,25 @@ if plot:
   # wea =
   wb = ka*vb
 
+  kadl = ka*dl
 
+  print(kadl)
+  # beam_density ratio
+  alpha = 1
+  # Coefficients
+  coeff1 = ( 1 + ( 1 / (kadl*kadl) ) )
+  coeff2 = -2*kadl*(vb/dl)*coeff1
+  coeff3 = ( (kadl*kadl) * (1/(dl*dl)) * (vb*vb) * coeff1) - alpha*wpi*wpi
+
+  roots = []
+  for i in range(1,len(kadl)):
+      coeffs = [coeff1[i], coeff2[i], coeff3[i]]
+      root = np.roots(coeffs)
+      roots.append(root)
+  roots = np.array(roots)
+
+  wbf = np.real(roots[:,0])/wpi
+  wbs = np.real(roots[:,1])/wpi
   #omega_pe
 
   if norm == "omega_pi":
@@ -165,6 +220,8 @@ if plot:
   wac /= wpi
   wah /= wpi
   wb /= wpi
+  K *= dl
+
 
   Z = np.log(np.abs(F))
   #Z = np.abs(F)
@@ -201,11 +258,12 @@ if plot:
     plt.colorbar()
 
   if norm == "omega_pi":
-    plt.plot(ka, wb, '--w', label="Beam Mode")
+    plt.plot(kadl[1:], wbf, '--w', label="Fast Beam Mode")
+    plt.plot(kadl[1:], wbs, '--r', label="Slow Beam Mode")
     # plt.plot(ka, wah, '--r',label="IAW with warm ions")
     # plt.plot(ka, wb, '--w',label="Beam driven waves")
     leg = ax.legend()
-    ax.set_xlabel('$k~[1/m]$')
+    ax.set_xlabel('$k \lambda_{D}$')
     ax.set_ylabel('$\omega/\omega_{pi}$')
   else:
     plt.plot(ka, wb, '--w', label="langmuir wave")
