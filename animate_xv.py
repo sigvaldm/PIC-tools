@@ -34,7 +34,7 @@ files.sort(key=lambda x: int(pat.findall(x)[-1]))
 
 files = files[args.f:args.t:args.s]
 
-labels = ['Electron', 'Argon']
+labels = ['Hydrogen','Electron']
 nSpecies = len(labels)
 fig,axs = plt.subplots(nSpecies,1)
 
@@ -51,10 +51,10 @@ with moviewriter.saving(fig, pjoin(folder, 'xv.mp4'), 100):
         timer.task('Read file')
 
         # This method reads files at half the time of np.loadtxt()
-        with open(file) as f:
+        with open(file, 'rb') as f:
             f.readline() # Skip first line
             data = np.array([line.strip().split() for line in f], float)
-
+        # print(data)
         for i in range(nSpecies):
 
             timer.task('Plot particles')
