@@ -14,7 +14,7 @@ from scipy.constants import value as constants
 from glob import glob
 import re
 from tqdm import tqdm
-from aux import *
+from parsers import *
 import argparse
 
 
@@ -24,6 +24,7 @@ parser.add_argument('-per','--periodic', action='store_true', help='Add this if 
 parser.add_argument('-yLoc','--yLocation', default=1, type=int, help='In bounded (in Y) system Choose Y location, Options: e.g. 1 (Any number between 0-Ny)')
 parser.add_argument('-pl','--plot', action='store_true', help='Add this if you want to plot the figure')
 parser.add_argument('-n','--norm', default='omega_pe', type=str, help='Normalizing frequency, Options: omega_pi, omega_pe')
+
 
 args        = parser.parse_args()
 folder      = args.input
@@ -42,7 +43,8 @@ files.sort(key=lambda x: int(pat.findall(x)[-1]))
 
 # READ TEMPORAL GRID
 vars = parse_xoopic_input(pjoin(folder, '..', 'input.inp'))
-dt = vars['timeStep']
+# print(vars['Control'][0]['dt'])
+dt = vars['Control'][0]['dt']
 
 n = np.array([int(pat.findall(a)[-1]) for a in files])
 n += 1 # XOOPIC diagnostics is actually off by one
@@ -50,12 +52,12 @@ t = n*dt
 Nt = len(t)
 
 if  os.path.exists(savedir) and os.path.exists(pjoin(savedir,'pro_data_file.npz')):
-	print('processed data exists. Loading data ...')
-	f = np.load(pjoin(savedir,'pro_data_file.npz'))['data']
-	f = np.array(f.T)
-	print('Shape of loaded data fp: ',f.shape)
-	x = np.load(pjoin(savedir,"x.npz"))['x']
-	print("Shape of loaded data x",x.shape)
+        print('processed data exists. Loading data ...')
+        f = np.load(pjoin(savedir,'pro_data_file.npz'))['data']
+        print('Shape of loaded data fp: ',f.shape)
+        Nt = len(f[:,0])
+        x = np.load(pjoin(savedir,"x.npz"))['x']
+        print("Shape of loaded data x",x.shape)
 
 else:
   if  os.path.exists(savedir)== False:
@@ -88,10 +90,16 @@ else:
 
 if plot:
     # FFT axes
-  dt = vars['timeStep']*vars['save_step'] #t[1]-t[0]
-  dx = vars['dX'] #x[1]-x[0]
-  Mt = len(t)
-  Mx = vars['nX'] #len(x)
+  # dt = vars['timeStep']*vars['save_step'] #t[1]-t[0]
+
+  Mt = Nt
+  Mx = vars['Grid'][0]['J'] #len(x)
+  Lx = vars['Grid'][0]['x1f'] - vars['Grid'][0]['x1s']
+  dx = Lx/Mx #x[1]-x[0]
+  # dt = t[1]-t[0]
+  # dx = x[1]-x[0]
+  # Mt = len(t)
+  # Mx = len(x)
   omega = 2*np.pi*np.arange(Mt)/(Mt*dt)
   k     = 2*np.pi*np.arange(Mx)/(Mx*dx)
   print('Length of k: ',len(k))
@@ -106,20 +114,65 @@ if plot:
   F = F[:halflen[0],:halflen[1]]
 
   # Analytical ion-acoustic dispresion relation
-  ni = vars['nI']
-  ne = ni
+  ne = 1E13 #vars['Load'][0]['density']
+  ni = ne
 
   eps0 = constants('electric constant')
   kb = constants('Boltzmann constant')
   me = constants('electron mass')
   e = constants('elementary charge')
 
-  mi  = vars['mI'] #40*constants('atomic mass constant')
-  nK  = vars['nX']
+  mi  = vars['Species'][1]['m'] #40*constants('atomic mass constant')
+  nK  = vars['Grid'][0]['J']
   gamma_e = 5./3
-  Te  = vars['tEK'] #1.6*11604
-  Ti  = vars['tIK'] #0.1*11604
-  vb  = vars['vdI']
+
+  if 'BeamEmitter' in vars:
+      units_0 = vars['BeamEmitter'][0]['units']
+      if units_0 == 'MKS':
+          vthE = vars['BeamEmitter'][0]['temperature']
+          tEeV   = 0.5*me*(vthE*vthE)/e
+          tEK    = tEeV*11604.525
+
+      units_1 = vars['BeamEmitter'][1]['units']
+      if units_1 == 'MKS':
+          vthI = vars['BeamEmitter'][1]['temperature']
+          tIeV   = 0.5*mi*(vthI*vthI)/e
+          tIK    = tIeV*11604.525
+          vb  = vars['BeamEmitter'][1]['v1drift']
+          tIbeV   = 0.5*mi*(vb*vb)/e
+          tIbK    = tIbeV*11604.525
+  if 'Load' in vars:
+      units_0 = vars['Load'][0]['units']
+      if units_0 == 'MKS':
+          vthE = vars['Load'][0]['temperature']
+          tEeV   = 0.5*me*(vthE*vthE)/e
+          tEK    = tEeV*11604.525
+
+      units_1 = vars['Load'][1]['units']
+      if units_1 == 'MKS':
+          vthI = vars['Load'][1]['temperature']
+          tIeV   = 0.5*mi*(vthI*vthI)/e
+          tIK    = tIeV*11604.525
+          vb  = vars['Load'][1]['v1drift']
+          tIbeV   = 0.5*mi*(vb*vb)/e
+          tIbK    = tIbeV*11604.525
+
+
+# For Plasma Source
+  # vthE = 419368.69338080706
+  # tEeV   = 0.5*me*(vthE*vthE)/e
+  # tEK    = tEeV*11604.525
+  #
+  # vthI = 1384.122937841148
+  # tIeV   = 0.5*mi*(vthI*vthI)/e
+  # tIK    = tIeV*11604.525
+  # vb  = 4376.981045261688
+  # tIbeV   = 0.5*mi*(vb*vb)/e
+  # tIbK    = tIbeV*11604.525
+
+  Te  = tEK #vars['tEK'] #1.6*11604
+  Ti  = tIK #vars['tIK'] #0.1*11604
+
 
   wpi = np.sqrt(e**2*ni/(eps0*mi))
   wpe = np.sqrt(e**2*ne/(eps0*me))
@@ -135,7 +188,25 @@ if plot:
   # wea =
   wb = ka*vb
 
+  kadl = ka*dl
 
+  print(kadl)
+  # beam_density ratio
+  alpha = 1
+  # Coefficients
+  coeff1 = ( 1 + ( 1 / (kadl*kadl) ) )
+  coeff2 = -2*kadl*(vb/dl)*coeff1
+  coeff3 = ( (kadl*kadl) * (1/(dl*dl)) * (vb*vb) * coeff1) - alpha*wpi*wpi
+
+  roots = []
+  for i in range(1,len(kadl)):
+      coeffs = [coeff1[i], coeff2[i], coeff3[i]]
+      root = np.roots(coeffs)
+      roots.append(root)
+  roots = np.array(roots)
+
+  wbf = np.real(roots[:,0])/wpi
+  wbs = np.real(roots[:,1])/wpi
   #omega_pe
 
   if norm == "omega_pi":
@@ -149,6 +220,8 @@ if plot:
   wac /= wpi
   wah /= wpi
   wb /= wpi
+  K *= dl
+
 
   Z = np.log(np.abs(F))
   #Z = np.abs(F)
@@ -170,30 +243,35 @@ if plot:
   mp.rc('legend', fontsize=12)
 
   oRange = len(K[:,0]) #for full omega len(K[:,0])
+  # oRange = int(oRange/50)
+  print(K[:oRange,:].shape,Omega[:oRange,:].shape,Z[:oRange,:].shape)
+  # print(oRange)
   if norm == "omega_pi":
-    oRange = int(oRange/10)
+    oRange = int(oRange/200)
     plt.pcolor(K[:oRange,:], Omega[:oRange,:], Z[:oRange,:],shading='auto',vmin=np.min(Z[:oRange,:]),vmax=np.max(Z[:oRange,:])) #np.min(Z[:oRange,:])
     plt.colorbar()
   else:
+    oRange = int(oRange/50)
     plt.pcolor(K[:oRange,:], Omega[:oRange,:], Z[:oRange,:],shading='auto',vmin=np.min(Z[:oRange,:]),vmax=np.max(Z[:oRange,:]))
     #plt.pcolor(K, Omega, Z,shading='auto',vmin=np.min(Z),vmax=np.max(Z))
     #plt.imshow(K, Omega, Z)
     plt.colorbar()
-  
+
   if norm == "omega_pi":
-    plt.plot(ka, wac, '--w', label="IAW with cold ions")
+    plt.plot(kadl[1:], wbf, '--w', label="Fast Beam Mode")
+    plt.plot(kadl[1:], wbs, '--r', label="Slow Beam Mode")
     # plt.plot(ka, wah, '--r',label="IAW with warm ions")
     # plt.plot(ka, wb, '--w',label="Beam driven waves")
     leg = ax.legend()
-    ax.set_xlabel('$k~[1/m]$')
+    ax.set_xlabel('$k \lambda_{D}$')
     ax.set_ylabel('$\omega/\omega_{pi}$')
   else:
-    plt.plot(ka, wl, '--w', label="langmuir wave")
+    plt.plot(ka, wb, '--w', label="langmuir wave")
     # plt.axhline(y=1.0, color='w', linestyle='--',label='$\omega_{pe}$')
-    # leg = ax.legend()
+    leg = ax.legend()
     ax.set_xlabel('$k~[1/m]$')
-    ax.set_ylabel('$\omega/\omega_{pi}$')
+    ax.set_ylabel('$\omega/\omega_{pe}$')
 
-  #ax.set_ylim([0, 2])
+  ax.set_ylim([0, 2])
   plt.savefig(pjoin(savedir, norm+'_disprel.png'))
   # plt.show()
